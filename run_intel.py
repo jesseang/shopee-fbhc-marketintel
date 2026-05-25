@@ -1,7 +1,6 @@
-import google.generativeai as genai
-import requests
-import os
-import json
+from google import genai
+from google.genai import types
+import requests, os, json
 from datetime import datetime
 
 # ── CONFIG ──────────────────────────────────────────────────────────
@@ -12,62 +11,62 @@ GEMINI_API_KEY     = os.environ["GEMINI_API_KEY"]
 TODAY = datetime.now().strftime("%A, %d %B %Y")
 
 # ── PROMPT ──────────────────────────────────────────────────────────
-SYSTEM_PROMPT = f"""
-You are a market intelligence analyst for a Category Manager at Shopee Indonesia.
-Categories managed: Food & Beverage, Homecare, Personal Care (grocery).
+PROMPT = f"""
 Today is {TODAY}.
 
-Search for the 3-5 most important and relevant news items from the last 24-48 hours that could impact this Shopee grocery category. Focus on:
-- Indonesian news (Kompas, Detik, CNBC Indonesia, CNN Indonesia)
-- Government regulations (BPOM, Kemendag, Kemenko Perekonomian)
-- Social media trends in Indonesia (TikTok, Instagram viral products)
+You are a market intelligence analyst for a Category Manager at Shopee Indonesia.
+Categories: Food & Beverage, Homecare, Personal Care (grocery).
+
+Search the web for the 3-5 most important news items from the last 48 hours relevant to:
+- Indonesian economy, consumer spending, inflation (Kompas, Detik, CNBC Indonesia)
+- Government regulations: BPOM, Kemendag, Kemenko Perekonomian
+- Viral/trending products on Indonesian TikTok or Instagram
 - Global FMCG/CPG trends reaching Indonesia
 
-For EACH news item found, assess impact across these 5 levers:
-1. Assortment — does this affect what products we should carry or remove?
-2. Price — does this affect pricing strategy or consumer price sensitivity?
-3. Seller Investment — does this affect how much sellers will invest/spend on the platform?
-4. Content Commerce — does this affect live selling, affiliate, or content trends?
-5. Seller Sentiment — does this make sellers more optimistic or pessimistic?
+For EACH news item, assess impact on these 5 levers:
+1. Assortment — affect what products to carry or remove?
+2. Price — affect pricing strategy or consumer price sensitivity?
+3. Seller Investment — affect how much sellers invest on the platform?
+4. Content Commerce — affect live selling, affiliates, or content trends?
+5. Seller Sentiment — make sellers more optimistic or pessimistic?
 
-For each lever: label GOOD or BAD, then give a short specific reason why.
-Then assess category impact for Food & Beverage and Homecare specifically.
+Label each lever GOOD or BAD with a short specific reason.
+Then give category-specific impact for Food & Beverage and Homecare.
 
-Return ONLY a valid JSON array. No markdown, no explanation outside JSON:
+Return ONLY a valid JSON array, no markdown fences, no explanation:
 [
   {{
-    "news_title": "concise news headline",
-    "link": "actual URL if found, else best source URL",
+    "news_title": "concise headline",
+    "link": "actual article URL",
     "assortment_verdict": "GOOD or BAD",
-    "assortment_reason": "short specific reason",
+    "assortment_reason": "short reason",
     "price_verdict": "GOOD or BAD",
-    "price_reason": "short specific reason",
+    "price_reason": "short reason",
     "seller_investment_verdict": "GOOD or BAD",
-    "seller_investment_reason": "short specific reason",
+    "seller_investment_reason": "short reason",
     "content_commerce_verdict": "GOOD or BAD",
-    "content_commerce_reason": "short specific reason",
+    "content_commerce_reason": "short reason",
     "seller_sentiment_verdict": "GOOD or BAD",
-    "seller_sentiment_reason": "short specific reason",
-    "category_food_beverage": "1-2 sentence impact on F&B",
-    "category_homecare": "1-2 sentence impact on Homecare"
+    "seller_sentiment_reason": "short reason",
+    "category_food_beverage": "1-2 sentence impact",
+    "category_homecare": "1-2 sentence impact"
   }}
 ]
 """
 
-# ── CALL GEMINI WITH SEARCH ──────────────────────────────────────────
-genai.configure(api_key=GEMINI_API_KEY)
+# ── CALL GEMINI WITH GOOGLE SEARCH ───────────────────────────────────
+client = genai.Client(api_key=GEMINI_API_KEY)
 
-model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
-    tools="google_search",  # built-in grounding search, free
-)
-
-response = model.generate_content(
-    f"Today is {TODAY}. Run a full market intelligence scan for a Shopee Indonesia Category Manager handling Food & Beverage, Homecare, and Personal Care. Find the 3-5 most impactful news items from the last 48 hours. Return JSON only as instructed.\n\nSystem instructions:\n{SYSTEM_PROMPT}"
+response = client.models.generate_content(
+    model="gemini-2.0-flash",
+    contents=PROMPT,
+    config=types.GenerateContentConfig(
+        tools=[types.Tool(google_search=types.GoogleSearch())],
+        temperature=0.3,
+    ),
 )
 
 raw = response.text.strip()
-# Strip markdown fences if present
 if raw.startswith("```"):
     raw = raw.split("```")[1]
     if raw.startswith("json"):
@@ -76,9 +75,9 @@ raw = raw.strip()
 
 news_items = json.loads(raw)
 
-# ── FORMAT TELEGRAM MESSAGES ─────────────────────────────────────────
+# ── SEND TO TELEGRAM ─────────────────────────────────────────────────
 def emoji(verdict):
-    return "✅" if verdict.upper() == "GOOD" else "❌"
+    return "✅" if verdict.strip().upper() == "GOOD" else "❌"
 
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -91,16 +90,15 @@ def send_telegram(text):
     r = requests.post(url, json=payload)
     r.raise_for_status()
 
-# ── SEND HEADER ──────────────────────────────────────────────────────
-header = (
+# Header
+send_telegram(
     f"📡 <b>SHOPEE GROCERY — MARKET INTEL</b>\n"
     f"📅 {TODAY}\n"
     f"🔍 {len(news_items)} signals found\n"
-    f"{'─' * 30}"
+    f"{'─' * 28}"
 )
-send_telegram(header)
 
-# ── SEND EACH NEWS ITEM ───────────────────────────────────────────────
+# Each news item
 for i, item in enumerate(news_items, 1):
     msg = (
         f"<b>NEWS {i}: {item['news_title']}</b>\n\n"
@@ -117,7 +115,7 @@ for i, item in enumerate(news_items, 1):
     )
     send_telegram(msg)
 
-# ── SEND FOOTER ───────────────────────────────────────────────────────
-send_telegram("✅ <b>End of daily scan.</b> Powered by Gemini AI + Google Search · Auto-runs 07:00 WIB")
+# Footer
+send_telegram("✅ <b>End of daily scan.</b>\nPowered by Gemini AI + Google Search\nAuto-runs 07:00 WIB daily")
 
 print(f"✅ Sent {len(news_items)} news items to Telegram for {TODAY}")
