@@ -1,29 +1,53 @@
 from google import genai
 from google.genai import types
-import requests, os, json
+import requests, os, json, hashlib
 from datetime import datetime
+from pathlib import Path
 
 # ── CONFIG ──────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID   = os.environ["TELEGRAM_CHAT_ID"]
 GEMINI_API_KEY     = os.environ["GEMINI_API_KEY"]
 
-TODAY = datetime.now().strftime("%A, %d %B %Y")
+NOW   = datetime.utcnow()
+TODAY = NOW.strftime("%A, %d %B %Y")
+HOUR  = NOW.strftime("%H:%M UTC")
+
+# ── SEEN NEWS TRACKER ────────────────────────────────────────────────
+# Stores hashes of news titles already sent today — resets each day
+SEEN_FILE = Path("seen_news.json")
+
+def load_seen():
+    if SEEN_FILE.exists():
+        data = json.loads(SEEN_FILE.read_text())
+        # Reset if it's a new day
+        if data.get("date") != NOW.strftime("%Y-%m-%d"):
+            return {"date": NOW.strftime("%Y-%m-%d"), "hashes": []}
+        return data
+    return {"date": NOW.strftime("%Y-%m-%d"), "hashes": []}
+
+def save_seen(data):
+    SEEN_FILE.write_text(json.dumps(data))
+
+def make_hash(title):
+    return hashlib.md5(title.lower().strip().encode()).hexdigest()
 
 # ── PROMPT ──────────────────────────────────────────────────────────
 PROMPT = f"""
-Today is {TODAY}.
+Today is {TODAY}, current time is {HOUR}.
 
 You are a market intelligence analyst for a Category Manager at Shopee Indonesia.
 Categories: Food & Beverage, Homecare, Personal Care (grocery).
 
-Search the web for the 3-5 most important news items from the last 48 hours relevant to:
+Search the web for news from the last 3-4 hours relevant to:
 - Indonesian economy, consumer spending, inflation (Kompas, Detik, CNBC Indonesia)
 - Government regulations: BPOM, Kemendag, Kemenko Perekonomian
 - Viral/trending products on Indonesian TikTok or Instagram
 - Global FMCG/CPG trends reaching Indonesia
 
-For EACH news item, assess impact on these 5 levers:
+IMPORTANT: Only include news published in the last 3-4 hours. If there is no relevant new news, return an empty array: []
+
+For EACH news item found, assess impact on these 5 levers:
 1. Assortment — affect what products to carry or remove?
 2. Price — affect pricing strategy or consumer price sensitivity?
 3. Seller Investment — affect how much sellers invest on the platform?
@@ -54,7 +78,7 @@ Return ONLY a valid JSON array, no markdown fences, no explanation:
 ]
 """
 
-# ── CALL GEMINI WITH GOOGLE SEARCH ───────────────────────────────────
+# ── CALL GEMINI ──────────────────────────────────────────────────────
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 response = client.models.generate_content(
@@ -73,7 +97,23 @@ if raw.startswith("```"):
         raw = raw[4:]
 raw = raw.strip()
 
-news_items = json.loads(raw)
+all_items = json.loads(raw)
+
+# ── FILTER OUT ALREADY-SEEN NEWS ─────────────────────────────────────
+seen = load_seen()
+new_items = []
+for item in all_items:
+    h = make_hash(item["news_title"])
+    if h not in seen["hashes"]:
+        new_items.append(item)
+        seen["hashes"].append(h)
+
+save_seen(seen)
+
+# ── IF NOTHING NEW, STOP SILENTLY ────────────────────────────────────
+if not new_items:
+    print(f"✅ No new news at {HOUR} — nothing sent to Telegram")
+    exit(0)
 
 # ── SEND TO TELEGRAM ─────────────────────────────────────────────────
 def emoji(verdict):
@@ -90,16 +130,16 @@ def send_telegram(text):
     r = requests.post(url, json=payload)
     r.raise_for_status()
 
-# Header
+# Header — only sent when there IS new news
 send_telegram(
     f"📡 <b>SHOPEE GROCERY — MARKET INTEL</b>\n"
-    f"📅 {TODAY}\n"
-    f"🔍 {len(news_items)} signals found\n"
+    f"📅 {TODAY} · {HOUR}\n"
+    f"🔍 {len(new_items)} new signal(s) found\n"
     f"{'─' * 28}"
 )
 
 # Each news item
-for i, item in enumerate(news_items, 1):
+for i, item in enumerate(new_items, 1):
     msg = (
         f"<b>NEWS {i}: {item['news_title']}</b>\n\n"
         f"🔗 <b>Link:</b> {item.get('link', 'N/A')}\n\n"
@@ -115,7 +155,4 @@ for i, item in enumerate(news_items, 1):
     )
     send_telegram(msg)
 
-# Footer
-send_telegram("✅ <b>End of daily scan.</b>\nPowered by Gemini AI + Google Search\nAuto-runs 07:00 WIB daily")
-
-print(f"✅ Sent {len(news_items)} news items to Telegram for {TODAY}")
+print(f"✅ Sent {len(new_items)} new item(s) to Telegram at {HOUR}")
