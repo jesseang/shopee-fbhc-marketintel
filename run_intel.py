@@ -58,7 +58,7 @@ Return ONLY a valid JSON array, no markdown fences, no explanation:
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 response = client.models.generate_content(
-    model="gemini-2.0-flash",
+    model="gemini-2.0-flash-lite",
     contents=PROMPT,
     config=types.GenerateContentConfig(
         tools=[types.Tool(google_search=types.GoogleSearch())],
