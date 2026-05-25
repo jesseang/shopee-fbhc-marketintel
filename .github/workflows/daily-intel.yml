@@ -1,0 +1,30 @@
+name: Daily Market Intelligence Bot
+
+on:
+  schedule:
+    # 07:00 WIB = 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch: # allows manual run from GitHub
+
+jobs:
+  run-intel:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install google-generativeai requests
+
+      - name: Run market intelligence scan
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python run_intel.py
