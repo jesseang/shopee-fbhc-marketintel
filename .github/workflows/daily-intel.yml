@@ -2,12 +2,15 @@ name: Daily Market Intelligence Bot
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 0,3,6,9,12,15,18,21 * * *'
   workflow_dispatch:
 
 jobs:
   run-intel:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repo
@@ -27,3 +30,11 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python run_intel.py
+
+      - name: Save seen news tracker
+        run: |
+          git config user.name "Market Intel Bot"
+          git config user.email "bot@shopee-intel.local"
+          git add seen_news.json || true
+          git diff --staged --quiet || git commit -m "📋 Update seen news tracker"
+          git push || true
