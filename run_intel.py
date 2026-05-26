@@ -14,17 +14,16 @@ TODAY = NOW.strftime("%A, %d %B %Y")
 HOUR  = NOW.strftime("%H:%M UTC")
 
 # ── SEEN NEWS TRACKER ────────────────────────────────────────────────
-# Stores hashes of news titles already sent today — resets each day
 SEEN_FILE = Path("seen_news.json")
 
 def load_seen():
-    if SEEN_FILE.exists():
+    try:
         data = json.loads(SEEN_FILE.read_text())
-        # Reset if it's a new day
         if data.get("date") != NOW.strftime("%Y-%m-%d"):
             return {"date": NOW.strftime("%Y-%m-%d"), "hashes": []}
         return data
-    return {"date": NOW.strftime("%Y-%m-%d"), "hashes": []}
+    except:
+        return {"date": NOW.strftime("%Y-%m-%d"), "hashes": []}
 
 def save_seen(data):
     SEEN_FILE.write_text(json.dumps(data))
@@ -45,19 +44,20 @@ Search the web for news from the last 3-4 hours relevant to:
 - Viral/trending products on Indonesian TikTok or Instagram
 - Global FMCG/CPG trends reaching Indonesia
 
-IMPORTANT: Only include news published in the last 3-4 hours. If there is no relevant new news, return an empty array: []
+IMPORTANT: Only include news published in the last 3-4 hours.
+If there is NO relevant new news, return exactly this: []
 
 For EACH news item found, assess impact on these 5 levers:
-1. Assortment — affect what products to carry or remove?
-2. Price — affect pricing strategy or consumer price sensitivity?
-3. Seller Investment — affect how much sellers invest on the platform?
-4. Content Commerce — affect live selling, affiliates, or content trends?
-5. Seller Sentiment — make sellers more optimistic or pessimistic?
+1. Assortment - affect what products to carry or remove?
+2. Price - affect pricing strategy or consumer price sensitivity?
+3. Seller Investment - affect how much sellers invest on the platform?
+4. Content Commerce - affect live selling, affiliates, or content trends?
+5. Seller Sentiment - make sellers more optimistic or pessimistic?
 
 Label each lever GOOD or BAD with a short specific reason.
 Then give category-specific impact for Food & Beverage and Homecare.
 
-Return ONLY a valid JSON array, no markdown fences, no explanation:
+Return ONLY a valid JSON array. No markdown. No explanation. Just the JSON:
 [
   {{
     "news_title": "concise headline",
@@ -78,11 +78,11 @@ Return ONLY a valid JSON array, no markdown fences, no explanation:
 ]
 """
 
-# ── CALL GEMINI ──────────────────────────────────────────────────────
+# ── CALL GEMINI 2.5 FLASH-LITE (current free tier model) ─────────────
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 response = client.models.generate_content(
-    model="gemini-2.5-flash-lite-preview-06-17",
+    model="gemini-2.5-flash-lite",
     contents=PROMPT,
     config=types.GenerateContentConfig(
         tools=[types.Tool(google_search=types.GoogleSearch())],
@@ -90,8 +90,10 @@ response = client.models.generate_content(
     ),
 )
 
+# ── PARSE JSON ───────────────────────────────────────────────────────
 raw = response.text.strip()
-if raw.startswith("```"):
+# Strip markdown fences if Gemini adds them
+if "```" in raw:
     raw = raw.split("```")[1]
     if raw.startswith("json"):
         raw = raw[4:]
@@ -99,7 +101,7 @@ raw = raw.strip()
 
 all_items = json.loads(raw)
 
-# ── FILTER OUT ALREADY-SEEN NEWS ─────────────────────────────────────
+# ── FILTER ALREADY-SEEN NEWS ─────────────────────────────────────────
 seen = load_seen()
 new_items = []
 for item in all_items:
@@ -107,12 +109,11 @@ for item in all_items:
     if h not in seen["hashes"]:
         new_items.append(item)
         seen["hashes"].append(h)
-
 save_seen(seen)
 
-# ── IF NOTHING NEW, STOP SILENTLY ────────────────────────────────────
+# ── NOTHING NEW → EXIT SILENTLY ──────────────────────────────────────
 if not new_items:
-    print(f"✅ No new news at {HOUR} — nothing sent to Telegram")
+    print(f"No new news at {HOUR} — nothing sent to Telegram")
     exit(0)
 
 # ── SEND TO TELEGRAM ─────────────────────────────────────────────────
@@ -121,16 +122,15 @@ def emoji(verdict):
 
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
+    r = requests.post(url, json={
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
-    }
-    r = requests.post(url, json=payload)
+    })
     r.raise_for_status()
 
-# Header — only sent when there IS new news
+# Header
 send_telegram(
     f"📡 <b>SHOPEE GROCERY — MARKET INTEL</b>\n"
     f"📅 {TODAY} · {HOUR}\n"
@@ -140,7 +140,7 @@ send_telegram(
 
 # Each news item
 for i, item in enumerate(new_items, 1):
-    msg = (
+    send_telegram(
         f"<b>NEWS {i}: {item['news_title']}</b>\n\n"
         f"🔗 <b>Link:</b> {item.get('link', 'N/A')}\n\n"
         f"<b>Impact to Shopee:</b>\n"
@@ -153,6 +153,11 @@ for i, item in enumerate(new_items, 1):
         f"🍜 <b>Food &amp; Beverage:</b> {item['category_food_beverage']}\n"
         f"🧴 <b>Homecare:</b> {item['category_homecare']}"
     )
-    send_telegram(msg)
 
-print(f"✅ Sent {len(new_items)} new item(s) to Telegram at {HOUR}")
+send_telegram(
+    "✅ <b>End of scan.</b>\n"
+    "Powered by Gemini 2.5 Flash-Lite + Google Search\n"
+    "Auto-runs every 3 hours · 07:00 WIB onwards"
+)
+
+print(f"✅ Sent {len(new_items)} item(s) to Telegram at {HOUR}")
