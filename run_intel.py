@@ -13,6 +13,22 @@ NOW   = datetime.utcnow()
 TODAY = NOW.strftime("%A, %d %B %Y")
 HOUR  = NOW.strftime("%H:%M UTC")
 
+# ── TRUSTED INDONESIAN NEWS SOURCES ─────────────────────────────────
+TRUSTED_SOURCES = [
+    # General news
+    "kompas.com", "tempo.co", "detik.com", "cnbcindonesia.com",
+    "bisnis.com", "kontan.co.id", "republika.co.id", "liputan6.com",
+    "antara.id", "antaranews.com", "mediaindonesia.com",
+    # Business & economy
+    "katadata.co.id", "industri.kontan.co.id", "ekonomi.bisnis.com",
+    # Government
+    "bpom.go.id", "kemendag.go.id", "kemenko.go.id", "kemenperin.go.id",
+    # FMCG / trade
+    "foodreview.co.id", "swa.co.id", "marketing.co.id",
+]
+
+SOURCES_LIST = ", ".join(TRUSTED_SOURCES)
+
 # ── SEEN NEWS TRACKER ────────────────────────────────────────────────
 SEEN_FILE = Path("seen_news.json")
 
@@ -44,20 +60,46 @@ def send_telegram(text):
 def emoji(verdict):
     return "✅" if verdict.strip().upper() == "GOOD" else "❌"
 
-# ── STEP 1: SEARCH with Gemini ───────────────────────────────────────
-# First call: use Google Search to gather raw news
+def extract_text(response):
+    """Safely extract text from Gemini response."""
+    text = ""
+    if response and response.candidates:
+        for candidate in response.candidates:
+            if candidate.content and candidate.content.parts:
+                for part in candidate.content.parts:
+                    if hasattr(part, "text") and part.text:
+                        text += part.text
+    return text.strip()
+
+# ── STEP 1: SEARCH — trusted Indonesian sources only ─────────────────
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 search_prompt = f"""
 Today is {TODAY}, time is {HOUR}.
 
-Search for news from the last 3-4 hours about:
-1. Indonesian economy, inflation, consumer spending (Kompas, Detik, CNBC Indonesia)
-2. BPOM or Kemendag regulations affecting food, beverage, or homecare products
-3. Viral food/beverage/homecare products on Indonesian TikTok or Instagram
-4. Global FMCG trends relevant to Indonesia
+Search for news published in the last 3-4 hours about topics relevant to 
+Indonesian grocery e-commerce (Food & Beverage, Homecare, Personal Care).
 
-Find 3-5 relevant news items and summarize each one with its URL.
+IMPORTANT: Only use news from these trusted Indonesian sources:
+{SOURCES_LIST}
+
+Do NOT include news from blogs, unknown sites, social media posts, or 
+unverified sources. Only report news if you can confirm it comes from 
+one of the trusted sources listed above.
+
+Search for:
+1. Indonesian economy, inflation, consumer spending, food prices
+2. BPOM or Kemendag regulations on food, beverage, homecare, or cosmetics
+3. Trending/viral food, beverage, or homecare products in Indonesia
+4. Supply chain, import regulations, or commodity prices affecting grocery
+
+For each news item found, provide:
+- Headline (as written on the source)
+- Full URL from the trusted source
+- Which source it came from (e.g. Kompas, Tempo)
+- 2-3 sentence summary
+
+If no relevant news from trusted sources in last 3-4 hours, say: NO_NEWS
 """
 
 search_response = client.models.generate_content(
@@ -65,57 +107,55 @@ search_response = client.models.generate_content(
     contents=search_prompt,
     config=types.GenerateContentConfig(
         tools=[types.Tool(google_search=types.GoogleSearch())],
-        temperature=0.3,
+        temperature=0.2,
     ),
 )
 
-# Extract text from search response — handle None safely
-search_text = ""
-if search_response and search_response.candidates:
-    for candidate in search_response.candidates:
-        if candidate.content and candidate.content.parts:
-            for part in candidate.content.parts:
-                if hasattr(part, 'text') and part.text:
-                    search_text += part.text
+search_text = extract_text(search_response)
 
-if not search_text.strip():
-    print(f"No search results at {HOUR} — skipping")
+if not search_text or "NO_NEWS" in search_text:
+    print(f"No relevant news from trusted sources at {HOUR} — skipping")
     exit(0)
 
-# ── STEP 2: ANALYZE with Gemini (no search tool, just text) ──────────
+# ── STEP 2: ANALYZE — structured impact assessment ───────────────────
 analysis_prompt = f"""
 You are a market intelligence analyst for a Shopee Indonesia Category Manager.
-Categories: Food & Beverage, Homecare, Personal Care.
+Categories managed: Food & Beverage, Homecare, Personal Care (grocery).
 
-Here are today's news summaries gathered from web search:
+Here are today's news items from trusted Indonesian media:
 {search_text}
 
-For each news item, assess impact on these 5 levers:
-- Assortment: affect what products to carry or remove?
-- Price: affect pricing or consumer price sensitivity?
-- Seller Investment: affect how much sellers invest on platform?
-- Content Commerce: affect live selling or content trends?
-- Seller Sentiment: make sellers optimistic or pessimistic?
+For each news item, produce a structured impact assessment across 5 levers:
+- Assortment: does this affect what products to carry or remove?
+- Price: does this affect pricing strategy or consumer price sensitivity?
+- Seller Investment: does this affect how much sellers invest on the platform?
+- Content Commerce: does this affect live selling, affiliates, or content trends?
+- Seller Sentiment: does this make sellers more optimistic or pessimistic?
 
-Label each GOOD or BAD with a short reason.
+Label each lever GOOD or BAD. Give a short specific reason for each.
+Also assess impact on Food & Beverage and Homecare sub-categories specifically.
 
-Return ONLY a JSON array. No markdown. No explanation. Just JSON:
+CRITICAL: Include the exact article URL from the news summary above in "link".
+If a URL was provided, use it exactly. Do not make up URLs.
+
+Return ONLY a valid JSON array. No markdown fences. No text before or after:
 [
   {{
-    "news_title": "concise headline",
-    "link": "URL if available, else N/A",
-    "assortment_verdict": "GOOD",
-    "assortment_reason": "short reason",
-    "price_verdict": "BAD",
-    "price_reason": "short reason",
-    "seller_investment_verdict": "GOOD",
-    "seller_investment_reason": "short reason",
-    "content_commerce_verdict": "GOOD",
-    "content_commerce_reason": "short reason",
-    "seller_sentiment_verdict": "BAD",
-    "seller_sentiment_reason": "short reason",
-    "category_food_beverage": "1-2 sentence impact on F&B",
-    "category_homecare": "1-2 sentence impact on Homecare"
+    "news_title": "headline as reported",
+    "source": "e.g. Kompas.com",
+    "link": "exact URL from the article",
+    "assortment_verdict": "GOOD or BAD",
+    "assortment_reason": "specific reason max 15 words",
+    "price_verdict": "GOOD or BAD",
+    "price_reason": "specific reason max 15 words",
+    "seller_investment_verdict": "GOOD or BAD",
+    "seller_investment_reason": "specific reason max 15 words",
+    "content_commerce_verdict": "GOOD or BAD",
+    "content_commerce_reason": "specific reason max 15 words",
+    "seller_sentiment_verdict": "GOOD or BAD",
+    "seller_sentiment_reason": "specific reason max 15 words",
+    "category_food_beverage": "1-2 sentence specific impact on F&B",
+    "category_homecare": "1-2 sentence specific impact on Homecare"
   }}
 ]
 """
@@ -126,40 +166,29 @@ analysis_response = client.models.generate_content(
     config=types.GenerateContentConfig(temperature=0.2),
 )
 
-# Extract text safely
-raw = ""
-if analysis_response and analysis_response.candidates:
-    for candidate in analysis_response.candidates:
-        if candidate.content and candidate.content.parts:
-            for part in candidate.content.parts:
-                if hasattr(part, 'text') and part.text:
-                    raw += part.text
+raw = extract_text(analysis_response)
 
-if not raw.strip():
+if not raw:
     print(f"No analysis output at {HOUR} — skipping")
     exit(0)
 
 # ── STEP 3: PARSE JSON ────────────────────────────────────────────────
-raw = raw.strip()
 if "```" in raw:
-    parts = raw.split("```")
-    for p in parts:
-        if p.startswith("json"):
-            raw = p[4:].strip()
+    for block in raw.split("```"):
+        if block.startswith("json"):
+            raw = block[4:].strip()
             break
-        elif "[" in p:
-            raw = p.strip()
+        elif "[" in block:
+            raw = block.strip()
             break
 
-# Find the JSON array
 start = raw.find("[")
-end = raw.rfind("]") + 1
+end   = raw.rfind("]") + 1
 if start == -1 or end == 0:
-    print(f"Could not find JSON in response — skipping")
+    print(f"Could not parse JSON at {HOUR} — skipping")
     exit(0)
 
-raw = raw[start:end]
-all_items = json.loads(raw)
+all_items = json.loads(raw[start:end])
 
 # ── STEP 4: FILTER SEEN NEWS ─────────────────────────────────────────
 seen = load_seen()
@@ -184,8 +213,11 @@ send_telegram(
 )
 
 for i, item in enumerate(new_items, 1):
+    source = item.get("source", "")
+    source_line = f"📰 <b>Source:</b> {source}\n" if source else ""
     send_telegram(
         f"<b>NEWS {i}: {item['news_title']}</b>\n\n"
+        f"{source_line}"
         f"🔗 <b>Link:</b> {item.get('link', 'N/A')}\n\n"
         f"<b>Impact to Shopee:</b>\n"
         f"{emoji(item['assortment_verdict'])} <b>Assortment:</b> {item['assortment_verdict']} — {item['assortment_reason']}\n"
@@ -200,8 +232,8 @@ for i, item in enumerate(new_items, 1):
 
 send_telegram(
     "✅ <b>End of scan.</b>\n"
-    "Powered by Gemini 2.5 Flash-Lite + Google Search\n"
-    "Auto-runs every 3 hours · 07:00 WIB onwards"
+    f"Sources: Kompas · Tempo · Detik · CNBC ID · Bisnis · Kontan · Antara + more\n"
+    "Auto-runs every 3 hours · 07:00 WIB"
 )
 
 print(f"✅ Sent {len(new_items)} item(s) to Telegram at {HOUR}")
