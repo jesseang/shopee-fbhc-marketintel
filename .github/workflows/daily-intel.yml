@@ -8,7 +8,6 @@ on:
 jobs:
   run-intel:
     runs-on: ubuntu-latest
-
     permissions:
       contents: write
 
@@ -36,5 +35,5 @@ jobs:
           git config user.name "Market Intel Bot"
           git config user.email "bot@shopee-intel.local"
           git add seen_news.json || true
-          git diff --staged --quiet || git commit -m "📋 Update seen news tracker"
+          git diff --staged --quiet || git commit -m "update seen news tracker"
           git push || true
