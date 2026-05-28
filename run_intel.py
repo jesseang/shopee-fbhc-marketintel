@@ -101,28 +101,64 @@ Search for news published in the last 3-4 hours from these trusted Indonesian so
 Cast a WIDE net — include ANY of the following topics:
 
 FMCG & GROCERY:
-- Food and beverage products, brands, launches, recalls
-- Household products, cleaning, personal care
-- Supermarket, minimarket, traditional market news (Indomaret, Alfamart, etc.)
-- Consumer goods companies (Unilever, Wings, Indofood, Mayora, ABC, etc.)
-- Food safety, BPOM regulations, halal certification
-- Commodity prices: cooking oil, rice, sugar, wheat, palm oil
-- Import/export regulations affecting food or consumer goods
-- Inflation, consumer spending, purchasing power
+- Food and beverage: Indomie, Aqua, Pocari, Teh Botol, Kopi Kapal Api, Milo, Bear Brand
+- Consumer goods brands: Unilever, Wings, Indofood, Mayora, Garudafood, ABC, Orang Tua Group
+- Homecare brands: Rinso, Sunlight, Soklin, Wipol, Super Pell, Baygon, Hit
+- Personal care brands: Pepsodent, Lifebouy, Dove, Pantene, Clear, Wardah, Emina
+- Supermarket & minimarket: Indomaret, Alfamart, Giant, Hypermart, Transmart, Hero
+- Food safety: BPOM recall, penarikan produk, produk berbahaya, izin edar
+- Halal: sertifikasi halal, MUI, BPJPH, produk haram
+- Commodity prices: harga minyak goreng, beras, gula, tepung terigu, kedelai, cabai
+- Import/export: impor pangan, ekspor produk FMCG, kuota impor
+- New product launches, inovasi produk, produk baru FMCG
+- Price increases: kenaikan harga, harga naik, inflasi pangan
+- Promotions: promo FMCG, diskon supermarket, cashback belanja
 
 E-COMMERCE & RETAIL:
-- Shopee, Tokopedia, TikTok Shop, Lazada, Blibli news
-- E-commerce policies, seller regulations, platform updates
-- Online shopping trends, consumer behavior
-- Logistics, delivery, last-mile updates
-- Live commerce, social commerce trends
-- Digital payment, fintech affecting e-commerce
+- Shopee, Tokopedia, TikTok Shop, Lazada, Blibli, Bukalapak news
+- Shopee Mall, Shopee Food, ShopeePay, Shopee affiliate
+- Tokopedia NOW, GoTo, Gojek, GrabMart
+- TikTok Shop Indonesia, TikTok affiliate, live shopping
+- Platform updates: seller fees, commission changes, algorithm updates
+- Flash sale, campaign mechanics, voucher policies
+- Seller onboarding, seller centre updates
+- Logistics: J&T, JNE, SiCepat, Anteraja, Ninja Xpress
+- Same day delivery, instant delivery, grocery delivery
+- Live commerce, live streaming belanja, affiliate marketing
+- Social commerce, creator economy, influencer marketing
+- Digital payment: GoPay, OVO, Dana, ShopeePay, QRIS
+- Buy now pay later: Shopee PayLater, Kredivo, Akulaku
+- Permendag (any revision or update, especially Permendag 31)
+- Kemendag regulations on marketplace, e-commerce, or digital trade
+- Keluhan marketplace, seller complaints to government
+- Aturan marketplace, regulasi platform digital, niaga elektronik
+- Bea masuk, tarif impor, cross-border e-commerce, barang impor
+- UMKM e-commerce, seller protection, perlindungan penjual
+- Jastip, reseller, dropshipper regulations
+- Penjual online, toko online, jualan online trends
+- Belanja online Indonesia, tren belanja digital
+- Marketplace commission, biaya platform, seller subsidi
 
-BROADER SIGNALS:
-- Indonesian economy, GDP, consumer confidence
-- Government subsidies or price controls on basic goods
-- Trending products or viral content in Indonesia
-- Korean, Japanese, or Western food/beauty trends entering Indonesia
+ECONOMY & CONSUMER SIGNALS:
+- Indonesian economy: GDP, pertumbuhan ekonomi, daya beli masyarakat
+- Inflation: inflasi, kenaikan harga barang, indeks harga konsumen
+- Government subsidies: subsidi pangan, bansos, bantuan sembako
+- Price controls: HET (harga eceran tertinggi), operasi pasar
+- Consumer confidence, indeks keyakinan konsumen
+- Kelas menengah Indonesia, middle class spending
+- UMP/UMR wage changes affecting consumer spending
+- Bank Indonesia interest rates, rupiah exchange rate impact on imports
+
+TREND & VIRAL SIGNALS:
+- Korean products: produk Korea, Korean food, K-beauty, hallyu
+- Japanese products: produk Jepang, Japanese snack, J-beauty  
+- Viral food: makanan viral, minuman viral, trending di TikTok
+- Health trends: produk sehat, organic, sugar-free, rendah kalori
+- Sustainable products: ramah lingkungan, eco-friendly, produk hijau
+- Gen Z & millennial consumer trends Indonesia
+- Aesthetic packaging, unboxing trends
+- Racikan, DIY food/beverage trends
+- Frozen food, ready-to-eat, meal kit trends Indonesia
 
 Do NOT include: political news unrelated to economy, sports, entertainment,
 celebrity gossip, or international news with no Indonesia impact.
