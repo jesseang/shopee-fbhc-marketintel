@@ -9,24 +9,23 @@ TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID   = os.environ["TELEGRAM_CHAT_ID"]
 GEMINI_API_KEY     = os.environ["GEMINI_API_KEY"]
 
-NOW   = datetime.utcnow()
-TODAY = NOW.strftime("%A, %d %B %Y")
-HOUR  = NOW.strftime("%H:%M UTC")
+NOW        = datetime.utcnow()
+TODAY      = NOW.strftime("%A, %d %B %Y")
+HOUR_UTC   = NOW.strftime("%H:%M UTC")
+HOUR_WIB   = NOW.hour + 7
+if HOUR_WIB >= 24: HOUR_WIB -= 24
+IS_MORNING = HOUR_WIB == 7
 
 # ── TRUSTED INDONESIAN NEWS SOURCES ─────────────────────────────────
 TRUSTED_SOURCES = [
-    # General news
     "kompas.com", "tempo.co", "detik.com", "cnbcindonesia.com",
     "bisnis.com", "kontan.co.id", "republika.co.id", "liputan6.com",
     "antara.id", "antaranews.com", "mediaindonesia.com",
-    # Business & economy
-    "katadata.co.id", "industri.kontan.co.id", "ekonomi.bisnis.com",
-    # Government
-    "bpom.go.id", "kemendag.go.id", "kemenko.go.id", "kemenperin.go.id",
-    # FMCG / trade
-    "foodreview.co.id", "swa.co.id", "marketing.co.id",
+    "katadata.co.id", "swa.co.id", "marketing.co.id",
+    "bpom.go.id", "kemendag.go.id", "kemenperin.go.id",
+    "foodreview.co.id", "techinasia.com", "dailysocial.id",
+    "idntimes.com", "kumparan.com", "thejakartapost.com",
 ]
-
 SOURCES_LIST = ", ".join(TRUSTED_SOURCES)
 
 # ── SEEN NEWS TRACKER ────────────────────────────────────────────────
@@ -36,10 +35,10 @@ def load_seen():
     try:
         data = json.loads(SEEN_FILE.read_text())
         if data.get("date") != NOW.strftime("%Y-%m-%d"):
-            return {"date": NOW.strftime("%Y-%m-%d"), "hashes": []}
+            return {"date": NOW.strftime("%Y-%m-%d"), "hashes": [], "scans": 0, "found": 0}
         return data
     except:
-        return {"date": NOW.strftime("%Y-%m-%d"), "hashes": []}
+        return {"date": NOW.strftime("%Y-%m-%d"), "hashes": [], "scans": 0, "found": 0}
 
 def save_seen(data):
     SEEN_FILE.write_text(json.dumps(data))
@@ -61,7 +60,6 @@ def emoji(verdict):
     return "✅" if verdict.strip().upper() == "GOOD" else "❌"
 
 def extract_text(response):
-    """Safely extract text from Gemini response."""
     text = ""
     if response and response.candidates:
         for candidate in response.candidates:
@@ -71,35 +69,67 @@ def extract_text(response):
                         text += part.text
     return text.strip()
 
-# ── STEP 1: SEARCH — trusted Indonesian sources only ─────────────────
+# ── LOAD SEEN DATA ───────────────────────────────────────────────────
+seen = load_seen()
+seen["scans"] = seen.get("scans", 0) + 1
+
+# ── MORNING HEARTBEAT ────────────────────────────────────────────────
+if IS_MORNING:
+    send_telegram(
+        f"🟢 <b>BOT STATUS: RUNNING</b>\n"
+        f"📅 {TODAY}\n"
+        f"⏰ Good morning! Daily scan started.\n\n"
+        f"<b>Yesterday's summary:</b>\n"
+        f"• Scans run: {seen.get('scans', 1)}\n"
+        f"• News items sent: {seen.get('found', 0)}\n\n"
+        f"📡 Scanning every 3 hours from trusted Indonesian sources\n\n"
+        f"<i>If you see this, the bot is alive and working ✅</i>"
+    )
+    seen["scans"] = 0
+    seen["found"] = 0
+    save_seen(seen)
+
+# ── STEP 1: SEARCH ───────────────────────────────────────────────────
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 search_prompt = f"""
-Today is {TODAY}, time is {HOUR}.
+Today is {TODAY}, time is {HOUR_UTC}.
 
-Search for news published in the last 3-4 hours about topics relevant to 
-Indonesian grocery e-commerce (Food & Beverage, Homecare, Personal Care).
-
-IMPORTANT: Only use news from these trusted Indonesian sources:
+Search for news published in the last 3-4 hours from these trusted Indonesian sources:
 {SOURCES_LIST}
 
-Do NOT include news from blogs, unknown sites, social media posts, or 
-unverified sources. Only report news if you can confirm it comes from 
-one of the trusted sources listed above.
+Cast a WIDE net — include ANY of the following topics:
 
-Search for:
-1. Indonesian economy, inflation, consumer spending, food prices
-2. BPOM or Kemendag regulations on food, beverage, homecare, or cosmetics
-3. Trending/viral food, beverage, or homecare products in Indonesia
-4. Supply chain, import regulations, or commodity prices affecting grocery
+FMCG & GROCERY:
+- Food and beverage products, brands, launches, recalls
+- Household products, cleaning, personal care
+- Supermarket, minimarket, traditional market news (Indomaret, Alfamart, etc.)
+- Consumer goods companies (Unilever, Wings, Indofood, Mayora, ABC, etc.)
+- Food safety, BPOM regulations, halal certification
+- Commodity prices: cooking oil, rice, sugar, wheat, palm oil
+- Import/export regulations affecting food or consumer goods
+- Inflation, consumer spending, purchasing power
 
-For each news item found, provide:
-- Headline (as written on the source)
-- Full URL from the trusted source
-- Which source it came from (e.g. Kompas, Tempo)
-- 2-3 sentence summary
+E-COMMERCE & RETAIL:
+- Shopee, Tokopedia, TikTok Shop, Lazada, Blibli news
+- E-commerce policies, seller regulations, platform updates
+- Online shopping trends, consumer behavior
+- Logistics, delivery, last-mile updates
+- Live commerce, social commerce trends
+- Digital payment, fintech affecting e-commerce
 
-If no relevant news from trusted sources in last 3-4 hours, say: NO_NEWS
+BROADER SIGNALS:
+- Indonesian economy, GDP, consumer confidence
+- Government subsidies or price controls on basic goods
+- Trending products or viral content in Indonesia
+- Korean, Japanese, or Western food/beauty trends entering Indonesia
+
+Do NOT include: political news unrelated to economy, sports, entertainment,
+celebrity gossip, or international news with no Indonesia impact.
+
+IMPORTANT: Only report news confirmed from the trusted sources list above.
+For each item provide: exact headline, full URL, source name, 2-3 sentence summary.
+If nothing relevant found, say exactly: NO_NEWS
 """
 
 search_response = client.models.generate_content(
@@ -114,31 +144,29 @@ search_response = client.models.generate_content(
 search_text = extract_text(search_response)
 
 if not search_text or "NO_NEWS" in search_text:
-    print(f"No relevant news from trusted sources at {HOUR} — skipping")
+    save_seen(seen)
+    print(f"No relevant news at {HOUR_UTC}")
     exit(0)
 
-# ── STEP 2: ANALYZE — structured impact assessment ───────────────────
+# ── STEP 2: ANALYZE ──────────────────────────────────────────────────
 analysis_prompt = f"""
 You are a market intelligence analyst for a Shopee Indonesia Category Manager.
-Categories managed: Food & Beverage, Homecare, Personal Care (grocery).
+Categories: Food & Beverage, Homecare, Personal Care (grocery).
 
 Here are today's news items from trusted Indonesian media:
 {search_text}
 
-For each news item, produce a structured impact assessment across 5 levers:
-- Assortment: does this affect what products to carry or remove?
-- Price: does this affect pricing strategy or consumer price sensitivity?
-- Seller Investment: does this affect how much sellers invest on the platform?
-- Content Commerce: does this affect live selling, affiliates, or content trends?
-- Seller Sentiment: does this make sellers more optimistic or pessimistic?
+For each news item, assess impact across 5 levers:
+- Assortment: affect what products to carry or remove?
+- Price: affect pricing or consumer price sensitivity?
+- Seller Investment: affect how much sellers invest on platform?
+- Content Commerce: affect live selling or content trends?
+- Seller Sentiment: make sellers optimistic or pessimistic?
 
-Label each lever GOOD or BAD. Give a short specific reason for each.
-Also assess impact on Food & Beverage and Homecare sub-categories specifically.
+Label each GOOD or BAD with a short specific reason.
+Include the exact article URL in the "link" field.
 
-CRITICAL: Include the exact article URL from the news summary above in "link".
-If a URL was provided, use it exactly. Do not make up URLs.
-
-Return ONLY a valid JSON array. No markdown fences. No text before or after:
+Return ONLY a valid JSON array. No markdown. No text before or after:
 [
   {{
     "news_title": "headline as reported",
@@ -154,8 +182,8 @@ Return ONLY a valid JSON array. No markdown fences. No text before or after:
     "content_commerce_reason": "specific reason max 15 words",
     "seller_sentiment_verdict": "GOOD or BAD",
     "seller_sentiment_reason": "specific reason max 15 words",
-    "category_food_beverage": "1-2 sentence specific impact on F&B",
-    "category_homecare": "1-2 sentence specific impact on Homecare"
+    "category_food_beverage": "1-2 sentence impact on F&B",
+    "category_homecare": "1-2 sentence impact on Homecare"
   }}
 ]
 """
@@ -169,55 +197,55 @@ analysis_response = client.models.generate_content(
 raw = extract_text(analysis_response)
 
 if not raw:
-    print(f"No analysis output at {HOUR} — skipping")
+    save_seen(seen)
+    print(f"No analysis output at {HOUR_UTC}")
     exit(0)
 
 # ── STEP 3: PARSE JSON ────────────────────────────────────────────────
 if "```" in raw:
     for block in raw.split("```"):
         if block.startswith("json"):
-            raw = block[4:].strip()
-            break
+            raw = block[4:].strip(); break
         elif "[" in block:
-            raw = block.strip()
-            break
+            raw = block.strip(); break
 
 start = raw.find("[")
 end   = raw.rfind("]") + 1
 if start == -1 or end == 0:
-    print(f"Could not parse JSON at {HOUR} — skipping")
+    save_seen(seen)
+    print(f"Could not parse JSON at {HOUR_UTC}")
     exit(0)
 
 all_items = json.loads(raw[start:end])
 
 # ── STEP 4: FILTER SEEN NEWS ─────────────────────────────────────────
-seen = load_seen()
 new_items = []
 for item in all_items:
     h = make_hash(item["news_title"])
     if h not in seen["hashes"]:
         new_items.append(item)
         seen["hashes"].append(h)
+
+seen["found"] = seen.get("found", 0) + len(new_items)
 save_seen(seen)
 
 if not new_items:
-    print(f"No new news at {HOUR} — nothing sent")
+    print(f"No new news at {HOUR_UTC} — already seen")
     exit(0)
 
 # ── STEP 5: SEND TO TELEGRAM ─────────────────────────────────────────
 send_telegram(
     f"📡 <b>SHOPEE GROCERY — MARKET INTEL</b>\n"
-    f"📅 {TODAY} · {HOUR}\n"
+    f"📅 {TODAY} · {HOUR_UTC}\n"
     f"🔍 {len(new_items)} new signal(s) found\n"
     f"{'─' * 28}"
 )
 
 for i, item in enumerate(new_items, 1):
     source = item.get("source", "")
-    source_line = f"📰 <b>Source:</b> {source}\n" if source else ""
     send_telegram(
         f"<b>NEWS {i}: {item['news_title']}</b>\n\n"
-        f"{source_line}"
+        f"{'📰 <b>Source:</b> ' + source + chr(10) if source else ''}"
         f"🔗 <b>Link:</b> {item.get('link', 'N/A')}\n\n"
         f"<b>Impact to Shopee:</b>\n"
         f"{emoji(item['assortment_verdict'])} <b>Assortment:</b> {item['assortment_verdict']} — {item['assortment_reason']}\n"
@@ -231,9 +259,8 @@ for i, item in enumerate(new_items, 1):
     )
 
 send_telegram(
-    "✅ <b>End of scan.</b>\n"
-    f"Sources: Kompas · Tempo · Detik · CNBC ID · Bisnis · Kontan · Antara + more\n"
-    "Auto-runs every 3 hours · 07:00 WIB"
+    f"✅ <b>Scan complete.</b> {len(new_items)} item(s) sent.\n"
+    f"Next scan in ~3 hours. Bot running normally ✅"
 )
 
-print(f"✅ Sent {len(new_items)} item(s) to Telegram at {HOUR}")
+print(f"✅ Sent {len(new_items)} item(s) to Telegram at {HOUR_UTC}")
