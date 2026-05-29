@@ -14,7 +14,7 @@ TODAY      = NOW.strftime("%A, %d %B %Y")
 HOUR_UTC   = NOW.strftime("%H:%M UTC")
 HOUR_WIB   = NOW.hour + 7
 if HOUR_WIB >= 24: HOUR_WIB -= 24
-IS_MORNING = HOUR_WIB == 7
+IS_MORNING = HOUR_WIB in [7, 8]  # catch delayed runs between 7-8AM WIB
 
 # ── TRUSTED INDONESIAN NEWS SOURCES ─────────────────────────────────
 TRUSTED_SOURCES = [
@@ -72,6 +72,15 @@ def extract_text(response):
 # ── LOAD SEEN DATA ───────────────────────────────────────────────────
 seen = load_seen()
 seen["scans"] = seen.get("scans", 0) + 1
+
+# ── DEBUG: confirm script is running ─────────────────────────────────
+# Remove this block after confirming bot works end-to-end
+send_telegram(
+    f"🔧 <b>DEBUG: Bot script started</b>\n"
+    f"⏰ {HOUR_UTC} · WIB hour: {HOUR_WIB}\n"
+    f"📅 {TODAY}\n"
+    f"IS_MORNING: {IS_MORNING}"
+)
 
 # ── MORNING HEARTBEAT ────────────────────────────────────────────────
 if IS_MORNING:
