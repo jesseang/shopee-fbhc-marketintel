@@ -14,19 +14,34 @@ TODAY      = NOW.strftime("%A, %d %B %Y")
 HOUR_UTC   = NOW.strftime("%H:%M UTC")
 HOUR_WIB   = NOW.hour + 7
 if HOUR_WIB >= 24: HOUR_WIB -= 24
-IS_MORNING = HOUR_WIB in [7, 8]  # catch delayed runs between 7-8AM WIB
+IS_MORNING = HOUR_WIB in [7, 8]
 
-# ── TRUSTED INDONESIAN NEWS SOURCES ─────────────────────────────────
-TRUSTED_SOURCES = [
-    "kompas.com", "tempo.co", "detik.com", "cnbcindonesia.com",
-    "bisnis.com", "kontan.co.id", "republika.co.id", "liputan6.com",
-    "antara.id", "antaranews.com", "mediaindonesia.com",
-    "katadata.co.id", "swa.co.id", "marketing.co.id",
-    "bpom.go.id", "kemendag.go.id", "kemenperin.go.id",
-    "foodreview.co.id", "techinasia.com", "dailysocial.id",
-    "idntimes.com", "kumparan.com", "thejakartapost.com",
+# ── SPECIFIC SEARCH QUERIES ──────────────────────────────────────────
+# Each query is laser-focused — no room for job listings or irrelevant news
+SEARCH_QUERIES = [
+    # E-commerce regulation
+    "Kemendag Permendag marketplace Indonesia 2026",
+    "regulasi e-commerce Shopee Tokopedia TikTok Shop Indonesia 2026",
+    "keluhan penjual marketplace Kemendag 2026",
+    # FMCG prices & policy
+    "harga minyak goreng beras gula Indonesia 2026",
+    "BPOM recall penarikan produk makanan minuman 2026",
+    "inflasi harga pangan Indonesia 2026",
+    # Platform news
+    "Shopee Indonesia kebijakan seller 2026",
+    "TikTok Shop Indonesia live commerce 2026",
+    # Trends
+    "produk FMCG viral Indonesia 2026",
+    "Korean food K-beauty trend Indonesia 2026",
 ]
-SOURCES_LIST = ", ".join(TRUSTED_SOURCES)
+
+# ── TRUSTED SOURCES ──────────────────────────────────────────────────
+TRUSTED_DOMAINS = [
+    "kompas.com", "tempo.co", "detik.com", "cnbcindonesia.com",
+    "bisnis.com", "kontan.co.id", "katadata.co.id", "antaranews.com",
+    "liputan6.com", "mediaindonesia.com", "republika.co.id",
+    "kemendag.go.id", "bpom.go.id", "thejakartapost.com",
+]
 
 # ── SEEN NEWS TRACKER ────────────────────────────────────────────────
 SEEN_FILE = Path("seen_news.json")
@@ -69,14 +84,20 @@ def extract_text(response):
                         text += part.text
     return text.strip()
 
+def is_valid_url(url):
+    if not url: return False
+    if url == "NOT_FOUND": return False
+    if not url.startswith("http"): return False
+    if "example.com" in url: return False
+    if len(url) < 25: return False
+    return True
+
+def is_trusted_source(url):
+    return any(domain in url for domain in TRUSTED_DOMAINS)
+
 # ── LOAD SEEN DATA ───────────────────────────────────────────────────
 seen = load_seen()
 seen["scans"] = seen.get("scans", 0) + 1
-
-# DEBUG — remove after fixing
-send_telegram(f"🔧 DEBUG: Script started at {HOUR_UTC} WIB:{HOUR_WIB}")
-
-
 
 # ── MORNING HEARTBEAT ────────────────────────────────────────────────
 if IS_MORNING:
@@ -87,119 +108,106 @@ if IS_MORNING:
         f"<b>Yesterday's summary:</b>\n"
         f"• Scans run: {seen.get('scans', 1)}\n"
         f"• News items sent: {seen.get('found', 0)}\n\n"
-        f"📡 Scanning every 3 hours from trusted Indonesian sources\n\n"
-        f"<i>If you see this, the bot is alive and working ✅</i>"
+        f"📡 Scanning every 3 hours · trusted Indonesian sources only\n"
+        f"<i>If you see this, the bot is alive ✅</i>"
     )
     seen["scans"] = 0
     seen["found"] = 0
     save_seen(seen)
 
-# ── STEP 1: SEARCH ───────────────────────────────────────────────────
+# ── STEP 1: RUN TARGETED SEARCHES ────────────────────────────────────
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-search_prompt = f"""
-Today is {TODAY}, time is {HOUR_UTC}.
+all_search_results = ""
 
-Search for news from the last 7 days from these trusted Indonesian sources:
-{SOURCES_LIST}
+for query in SEARCH_QUERIES:
+    search_prompt = f"""
+Search for: "{query}"
 
-Find news about ANY of these topics relevant to Indonesian grocery e-commerce:
+Find news articles from the last 7 days.
+Only return results from these trusted Indonesian news sites:
+kompas.com, tempo.co, detik.com, cnbcindonesia.com, bisnis.com,
+kontan.co.id, katadata.co.id, antaranews.com, liputan6.com,
+mediaindonesia.com, kemendag.go.id, bpom.go.id, thejakartapost.com
 
-FMCG & GROCERY: Indomie, Aqua, Unilever Indonesia, Wings, Indofood, Mayora, Garudafood,
-Rinso, Sunlight, Wardah, Emina, Pepsodent, Indomaret, Alfamart, BPOM recall, penarikan produk,
-sertifikasi halal, harga minyak goreng, harga beras, harga gula, inflasi pangan, produk baru FMCG
+For each result found, output EXACTLY this format:
+TITLE: [exact headline]
+URL: [exact URL from search results]
+SOURCE: [domain name]
+SUMMARY: [2 sentence summary]
+---
 
-E-COMMERCE & MARKETPLACE: Shopee Indonesia, Tokopedia, TikTok Shop Indonesia, Lazada, Blibli,
-Permendag, regulasi marketplace, keluhan penjual marketplace, Kemendag e-commerce,
-aturan seller, biaya platform, live commerce Indonesia, affiliate marketing, logistik J&T JNE SiCepat,
-kebijakan platform digital, UMKM online, perlindungan penjual
-
-ECONOMY: inflasi Indonesia, daya beli masyarakat, harga barang pokok, subsidi pangan,
-HET harga eceran tertinggi, impor pangan, bea masuk, kurs rupiah
-
-TRENDS: produk viral TikTok Indonesia, makanan viral, Korean food Indonesia, K-beauty Indonesia,
-frozen food, makanan sehat, belanja online trend
-
-RULES:
-- Indonesia market impact ONLY — skip global news with no Indonesia angle
-- Must be from the trusted sources list above
-- Include the EXACT URL as it appeared in search results
-- If no real URL found for an item, skip that item entirely
-- Do NOT invent or guess URLs
-
-For each item: headline | real URL | source name | 2-3 sentence summary
-If nothing found: NO_NEWS
+If no results found for this query, output: NONE
 """
+    try:
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=search_prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                temperature=0.1,
+            ),
+        )
+        result = extract_text(resp)
+        if result and result.strip() != "NONE":
+            all_search_results += f"\n\n=== Query: {query} ===\n{result}"
+    except Exception as e:
+        print(f"Search error for '{query}': {e}")
+        continue
 
-search_response = client.models.generate_content(
-    model="gemini-2.5-flash-lite",
-    contents=search_prompt,
-    config=types.GenerateContentConfig(
-        tools=[types.Tool(google_search=types.GoogleSearch())],
-        temperature=0.2,
-    ),
-)
-
-search_text = extract_text(search_response)
-
-# DEBUG
-send_telegram(f"🔧 DEBUG: Search done. Got text: {bool(search_text)} | NO_NEWS: {'NO_NEWS' in search_text if search_text else 'N/A'} | Length: {len(search_text) if search_text else 0}")
-
-if not search_text or "NO_NEWS" in search_text:
+if not all_search_results.strip():
     save_seen(seen)
-    print(f"No relevant news at {HOUR_UTC}")
+    print(f"No results from any search query at {HOUR_UTC}")
     exit(0)
 
-# ── STEP 2: ANALYZE ──────────────────────────────────────────────────
+# ── STEP 2: ANALYZE — extract structured items ────────────────────────
 analysis_prompt = f"""
 You are a market intelligence analyst for a Shopee Indonesia Category Manager.
 Categories: Food & Beverage, Homecare, Personal Care (grocery).
 
-Here are today's news items from trusted Indonesian media:
-{search_text}
+Here are raw search results from Indonesian news sites:
+{all_search_results}
 
-IMPORTANT: Before analyzing, check each news item:
-- Is it directly relevant to INDONESIAN market, sellers, or consumers? 
-- If NO → skip it entirely, do not include in output
-- If YES → analyze it
+From these results, extract ONLY news items that are:
+1. Directly relevant to Indonesian grocery e-commerce, FMCG, or marketplace regulation
+2. NOT job listings, NOT company profiles, NOT sports, NOT entertainment
+3. Have a real URL from a trusted source
 
-For relevant items, assess impact across 5 levers:
+For each relevant item, assess impact on 5 levers:
 - Assortment: affect what products to carry or remove?
 - Price: affect pricing or consumer price sensitivity?
 - Seller Investment: affect how much sellers invest on platform?
 - Content Commerce: affect live selling or content trends?
 - Seller Sentiment: make sellers optimistic or pessimistic?
 
-Label each GOOD or BAD with a short specific reason.
-For the "link" field: use the exact URL from the search results above.
-If no real URL was found, write "NOT_FOUND" — never invent a URL.
-
-Return ONLY a valid JSON array. No markdown. No text before or after:
+Return ONLY a valid JSON array. No markdown. No text outside JSON:
 [
   {{
-    "news_title": "headline as reported",
+    "news_title": "exact headline",
     "source": "e.g. Kompas.com",
-    "link": "exact URL from the article",
+    "link": "exact URL from search results — NOT_FOUND if unavailable",
     "assortment_verdict": "GOOD or BAD",
-    "assortment_reason": "specific reason max 15 words",
+    "assortment_reason": "max 12 words",
     "price_verdict": "GOOD or BAD",
-    "price_reason": "specific reason max 15 words",
+    "price_reason": "max 12 words",
     "seller_investment_verdict": "GOOD or BAD",
-    "seller_investment_reason": "specific reason max 15 words",
+    "seller_investment_reason": "max 12 words",
     "content_commerce_verdict": "GOOD or BAD",
-    "content_commerce_reason": "specific reason max 15 words",
+    "content_commerce_reason": "max 12 words",
     "seller_sentiment_verdict": "GOOD or BAD",
-    "seller_sentiment_reason": "specific reason max 15 words",
-    "category_food_beverage": "1-2 sentence impact on F&B",
-    "category_homecare": "1-2 sentence impact on Homecare"
+    "seller_sentiment_reason": "max 12 words",
+    "category_food_beverage": "1-2 sentence impact",
+    "category_homecare": "1-2 sentence impact"
   }}
 ]
+
+If nothing qualifies, return: []
 """
 
 analysis_response = client.models.generate_content(
     model="gemini-2.5-flash-lite",
     contents=analysis_prompt,
-    config=types.GenerateContentConfig(temperature=0.2),
+    config=types.GenerateContentConfig(temperature=0.1),
 )
 
 raw = extract_text(analysis_response)
@@ -226,56 +234,47 @@ if start == -1 or end == 0:
 
 all_items = json.loads(raw[start:end])
 
-# DEBUG
-send_telegram(f"🔧 DEBUG: Parsed {len(all_items)} items from JSON")
-
-# ── STEP 4: FILTER SEEN NEWS ─────────────────────────────────────────
+# ── STEP 4: FILTER — seen + valid URL + trusted source ───────────────
 new_items = []
 for item in all_items:
+    # Skip if already seen
     h = make_hash(item["news_title"])
-    if h not in seen["hashes"]:
-        new_items.append(item)
-        seen["hashes"].append(h)
+    if h in seen["hashes"]:
+        continue
+    # Skip if no valid URL
+    link = item.get("link", "NOT_FOUND")
+    if not is_valid_url(link):
+        print(f"Skipped (no valid URL): {item['news_title']}")
+        continue
+    # Skip if not from trusted source
+    if not is_trusted_source(link):
+        print(f"Skipped (untrusted source): {link}")
+        continue
+    new_items.append(item)
+    seen["hashes"].append(h)
 
 seen["found"] = seen.get("found", 0) + len(new_items)
 save_seen(seen)
 
 if not new_items:
-    print(f"No new news at {HOUR_UTC} — already seen")
-    send_telegram(f"🔧 DEBUG: No new items after dedup filter. Total seen hashes: {len(seen['hashes'])}")
+    print(f"No new verified news at {HOUR_UTC}")
     exit(0)
-
-# DEBUG — show how many pass URL filter
-send_telegram(f"🔧 DEBUG: {len(new_items)} new items after dedup. Now checking URLs...")
 
 # ── STEP 5: SEND TO TELEGRAM ─────────────────────────────────────────
 send_telegram(
     f"📡 <b>SHOPEE GROCERY — MARKET INTEL</b>\n"
     f"📅 {TODAY} · {HOUR_UTC}\n"
-    f"🔍 {len(new_items)} new signal(s) found\n"
+    f"🔍 {len(new_items)} verified signal(s) found\n"
     f"{'─' * 28}"
 )
 
 for i, item in enumerate(new_items, 1):
     source = item.get("source", "")
-    raw_link = item.get("link", "NOT_FOUND")
-
-    # Drop item entirely if no real URL — likely hallucination
-    is_real_url = (
-        raw_link and
-        raw_link != "NOT_FOUND" and
-        raw_link.startswith("http") and
-        "example.com" not in raw_link and
-        len(raw_link) > 20
-    )
-    if not is_real_url:
-        print(f"Skipped item with no real URL: {item['news_title']}")
-        continue
-
+    link   = item.get("link", "")
     send_telegram(
         f"<b>NEWS {i}: {item['news_title']}</b>\n\n"
         f"{'📰 <b>Source:</b> ' + source + chr(10) if source else ''}"
-        f"🔗 <b>Link:</b> {raw_link}\n\n"
+        f"🔗 <b>Link:</b> {link}\n\n"
         f"<b>Impact to Shopee:</b>\n"
         f"{emoji(item['assortment_verdict'])} <b>Assortment:</b> {item['assortment_verdict']} — {item['assortment_reason']}\n"
         f"{emoji(item['price_verdict'])} <b>Price:</b> {item['price_verdict']} — {item['price_reason']}\n"
@@ -288,8 +287,8 @@ for i, item in enumerate(new_items, 1):
     )
 
 send_telegram(
-    f"✅ <b>Scan complete.</b> {len(new_items)} item(s) sent.\n"
-    f"Next scan in ~3 hours. Bot running normally ✅"
+    f"✅ <b>Scan complete.</b> {len(new_items)} verified item(s).\n"
+    f"Next scan in ~3 hours ✅"
 )
 
 print(f"✅ Sent {len(new_items)} item(s) to Telegram at {HOUR_UTC}")
