@@ -100,101 +100,35 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 search_prompt = f"""
 Today is {TODAY}, time is {HOUR_UTC}.
 
-Search for news published in the last 3-4 hours from these trusted Indonesian sources:
+Search for news from the last 7 days from these trusted Indonesian sources:
 {SOURCES_LIST}
 
-Cast a WIDE net — include ANY of the following topics:
+Find news about ANY of these topics relevant to Indonesian grocery e-commerce:
 
-FMCG & GROCERY:
-- Food and beverage: Indomie, Aqua, Pocari, Teh Botol, Kopi Kapal Api, Milo, Bear Brand
-- Consumer goods brands: Unilever, Wings, Indofood, Mayora, Garudafood, ABC, Orang Tua Group
-- Homecare brands: Rinso, Sunlight, Soklin, Wipol, Super Pell, Baygon, Hit
-- Personal care brands: Pepsodent, Lifebouy, Dove, Pantene, Clear, Wardah, Emina
-- Supermarket & minimarket: Indomaret, Alfamart, Giant, Hypermart, Transmart, Hero
-- Food safety: BPOM recall, penarikan produk, produk berbahaya, izin edar
-- Halal: sertifikasi halal, MUI, BPJPH, produk haram
-- Commodity prices: harga minyak goreng, beras, gula, tepung terigu, kedelai, cabai
-- Import/export: impor pangan, ekspor produk FMCG, kuota impor
-- New product launches, inovasi produk, produk baru FMCG
-- Price increases: kenaikan harga, harga naik, inflasi pangan
-- Promotions: promo FMCG, diskon supermarket, cashback belanja
+FMCG & GROCERY: Indomie, Aqua, Unilever Indonesia, Wings, Indofood, Mayora, Garudafood,
+Rinso, Sunlight, Wardah, Emina, Pepsodent, Indomaret, Alfamart, BPOM recall, penarikan produk,
+sertifikasi halal, harga minyak goreng, harga beras, harga gula, inflasi pangan, produk baru FMCG
 
-E-COMMERCE & RETAIL:
-- Shopee, Tokopedia, TikTok Shop, Lazada, Blibli, Bukalapak news
-- Shopee Mall, Shopee Food, ShopeePay, Shopee affiliate
-- Tokopedia NOW, GoTo, Gojek, GrabMart
-- TikTok Shop Indonesia, TikTok affiliate, live shopping
-- Platform updates: seller fees, commission changes, algorithm updates
-- Flash sale, campaign mechanics, voucher policies
-- Seller onboarding, seller centre updates
-- Logistics: J&T, JNE, SiCepat, Anteraja, Ninja Xpress
-- Same day delivery, instant delivery, grocery delivery
-- Live commerce, live streaming belanja, affiliate marketing
-- Social commerce, creator economy, influencer marketing
-- Digital payment: GoPay, OVO, Dana, ShopeePay, QRIS
-- Buy now pay later: Shopee PayLater, Kredivo, Akulaku
-- Permendag (any revision or update, especially Permendag 31)
-- Kemendag regulations on marketplace, e-commerce, or digital trade
-- Keluhan marketplace, seller complaints to government
-- Aturan marketplace, regulasi platform digital, niaga elektronik
-- Bea masuk, tarif impor, cross-border e-commerce, barang impor
-- UMKM e-commerce, seller protection, perlindungan penjual
-- Jastip, reseller, dropshipper regulations
-- Penjual online, toko online, jualan online trends
-- Belanja online Indonesia, tren belanja digital
-- Marketplace commission, biaya platform, seller subsidi
+E-COMMERCE & MARKETPLACE: Shopee Indonesia, Tokopedia, TikTok Shop Indonesia, Lazada, Blibli,
+Permendag, regulasi marketplace, keluhan penjual marketplace, Kemendag e-commerce,
+aturan seller, biaya platform, live commerce Indonesia, affiliate marketing, logistik J&T JNE SiCepat,
+kebijakan platform digital, UMKM online, perlindungan penjual
 
-ECONOMY & CONSUMER SIGNALS:
-- Indonesian economy: GDP, pertumbuhan ekonomi, daya beli masyarakat
-- Inflation: inflasi, kenaikan harga barang, indeks harga konsumen
-- Government subsidies: subsidi pangan, bansos, bantuan sembako
-- Price controls: HET (harga eceran tertinggi), operasi pasar
-- Consumer confidence, indeks keyakinan konsumen
-- Kelas menengah Indonesia, middle class spending
-- UMP/UMR wage changes affecting consumer spending
-- Bank Indonesia interest rates, rupiah exchange rate impact on imports
+ECONOMY: inflasi Indonesia, daya beli masyarakat, harga barang pokok, subsidi pangan,
+HET harga eceran tertinggi, impor pangan, bea masuk, kurs rupiah
 
-TREND & VIRAL SIGNALS:
-- Korean products: produk Korea, Korean food, K-beauty, hallyu
-- Japanese products: produk Jepang, Japanese snack, J-beauty  
-- Viral food: makanan viral, minuman viral, trending di TikTok
-- Health trends: produk sehat, organic, sugar-free, rendah kalori
-- Sustainable products: ramah lingkungan, eco-friendly, produk hijau
-- Gen Z & millennial consumer trends Indonesia
-- Aesthetic packaging, unboxing trends
-- Racikan, DIY food/beverage trends
-- Frozen food, ready-to-eat, meal kit trends Indonesia
+TRENDS: produk viral TikTok Indonesia, makanan viral, Korean food Indonesia, K-beauty Indonesia,
+frozen food, makanan sehat, belanja online trend
 
-FOR EACH NEWS ITEM FOUND, PROVIDE:
-- Exact headline as written on the source
-- Full URL — ONLY if you actually found it in search results
-- Source name (e.g. Kompas.com, Detik.com)
-- 2-3 sentence summary
+RULES:
+- Indonesia market impact ONLY — skip global news with no Indonesia angle
+- Must be from the trusted sources list above
+- Include the EXACT URL as it appeared in search results
+- If no real URL found for an item, skip that item entirely
+- Do NOT invent or guess URLs
 
-CRITICAL ABOUT URLs — READ CAREFULLY:
-- ONLY include URLs that actually appeared in your search results
-- Do NOT make up, guess, or construct URLs
-- Do NOT use example.com or any placeholder URLs
-- If you could not find the exact URL, write "NOT_FOUND" for the link
-- Real URL example: https://www.kompas.com/ekonomi/read/2026/05/30/123456
-- Fake URL example: www.example.com/news2 — NEVER do this
-
-STRICT RELEVANCE RULES — MUST FOLLOW:
-1. INDONESIA ONLY — news must directly affect Indonesian consumers, sellers, or market
-   - A Unilever global report = NOT relevant
-   - Unilever Indonesia kenaikan harga = RELEVANT
-   - Amazon US policy = NOT relevant
-   - Shopee Indonesia new seller fee = RELEVANT
-   - US inflation = NOT relevant
-   - Inflasi Indonesia naik = RELEVANT
-
-2. Must be from the trusted Indonesian sources list above
-
-3. Must be published in the last 3-4 hours
-
-4. If a global/international news item has NO direct Indonesia market impact = SKIP IT
-
-If nothing passes all 3 rules, say exactly: NO_NEWS
+For each item: headline | real URL | source name | 2-3 sentence summary
+If nothing found: NO_NEWS
 """
 
 search_response = client.models.generate_content(
