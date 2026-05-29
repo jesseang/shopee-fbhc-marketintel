@@ -73,6 +73,9 @@ def extract_text(response):
 seen = load_seen()
 seen["scans"] = seen.get("scans", 0) + 1
 
+# DEBUG — remove after fixing
+send_telegram(f"🔧 DEBUG: Script started at {HOUR_UTC} WIB:{HOUR_WIB}")
+
 
 
 # ── MORNING HEARTBEAT ────────────────────────────────────────────────
@@ -205,6 +208,9 @@ search_response = client.models.generate_content(
 
 search_text = extract_text(search_response)
 
+# DEBUG
+send_telegram(f"🔧 DEBUG: Search done. Got text: {bool(search_text)} | NO_NEWS: {'NO_NEWS' in search_text if search_text else 'N/A'} | Length: {len(search_text) if search_text else 0}")
+
 if not search_text or "NO_NEWS" in search_text:
     save_seen(seen)
     print(f"No relevant news at {HOUR_UTC}")
@@ -286,6 +292,9 @@ if start == -1 or end == 0:
 
 all_items = json.loads(raw[start:end])
 
+# DEBUG
+send_telegram(f"🔧 DEBUG: Parsed {len(all_items)} items from JSON")
+
 # ── STEP 4: FILTER SEEN NEWS ─────────────────────────────────────────
 new_items = []
 for item in all_items:
@@ -299,7 +308,11 @@ save_seen(seen)
 
 if not new_items:
     print(f"No new news at {HOUR_UTC} — already seen")
+    send_telegram(f"🔧 DEBUG: No new items after dedup filter. Total seen hashes: {len(seen['hashes'])}")
     exit(0)
+
+# DEBUG — show how many pass URL filter
+send_telegram(f"🔧 DEBUG: {len(new_items)} new items after dedup. Now checking URLs...")
 
 # ── STEP 5: SEND TO TELEGRAM ─────────────────────────────────────────
 send_telegram(
@@ -313,7 +326,7 @@ for i, item in enumerate(new_items, 1):
     source = item.get("source", "")
     raw_link = item.get("link", "NOT_FOUND")
 
-    # Only show link if it looks like a real URL
+    # Drop item entirely if no real URL — likely hallucination
     is_real_url = (
         raw_link and
         raw_link != "NOT_FOUND" and
@@ -321,12 +334,14 @@ for i, item in enumerate(new_items, 1):
         "example.com" not in raw_link and
         len(raw_link) > 20
     )
-    link_line = f"🔗 <b>Link:</b> {raw_link}\n" if is_real_url else "🔗 <b>Link:</b> Artikel tidak tersedia online\n"
+    if not is_real_url:
+        print(f"Skipped item with no real URL: {item['news_title']}")
+        continue
 
     send_telegram(
         f"<b>NEWS {i}: {item['news_title']}</b>\n\n"
         f"{'📰 <b>Source:</b> ' + source + chr(10) if source else ''}"
-        f"{link_line}\n"
+        f"🔗 <b>Link:</b> {raw_link}\n\n"
         f"<b>Impact to Shopee:</b>\n"
         f"{emoji(item['assortment_verdict'])} <b>Assortment:</b> {item['assortment_verdict']} — {item['assortment_reason']}\n"
         f"{emoji(item['price_verdict'])} <b>Price:</b> {item['price_verdict']} — {item['price_reason']}\n"
