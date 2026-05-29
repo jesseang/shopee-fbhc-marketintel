@@ -73,14 +73,7 @@ def extract_text(response):
 seen = load_seen()
 seen["scans"] = seen.get("scans", 0) + 1
 
-# ── DEBUG: confirm script is running ─────────────────────────────────
-# Remove this block after confirming bot works end-to-end
-send_telegram(
-    f"🔧 <b>DEBUG: Bot script started</b>\n"
-    f"⏰ {HOUR_UTC} · WIB hour: {HOUR_WIB}\n"
-    f"📅 {TODAY}\n"
-    f"IS_MORNING: {IS_MORNING}"
-)
+
 
 # ── MORNING HEARTBEAT ────────────────────────────────────────────────
 if IS_MORNING:
@@ -169,12 +162,36 @@ TREND & VIRAL SIGNALS:
 - Racikan, DIY food/beverage trends
 - Frozen food, ready-to-eat, meal kit trends Indonesia
 
-Do NOT include: political news unrelated to economy, sports, entertainment,
-celebrity gossip, or international news with no Indonesia impact.
+FOR EACH NEWS ITEM FOUND, PROVIDE:
+- Exact headline as written on the source
+- Full URL — ONLY if you actually found it in search results
+- Source name (e.g. Kompas.com, Detik.com)
+- 2-3 sentence summary
 
-IMPORTANT: Only report news confirmed from the trusted sources list above.
-For each item provide: exact headline, full URL, source name, 2-3 sentence summary.
-If nothing relevant found, say exactly: NO_NEWS
+CRITICAL ABOUT URLs — READ CAREFULLY:
+- ONLY include URLs that actually appeared in your search results
+- Do NOT make up, guess, or construct URLs
+- Do NOT use example.com or any placeholder URLs
+- If you could not find the exact URL, write "NOT_FOUND" for the link
+- Real URL example: https://www.kompas.com/ekonomi/read/2026/05/30/123456
+- Fake URL example: www.example.com/news2 — NEVER do this
+
+STRICT RELEVANCE RULES — MUST FOLLOW:
+1. INDONESIA ONLY — news must directly affect Indonesian consumers, sellers, or market
+   - A Unilever global report = NOT relevant
+   - Unilever Indonesia kenaikan harga = RELEVANT
+   - Amazon US policy = NOT relevant
+   - Shopee Indonesia new seller fee = RELEVANT
+   - US inflation = NOT relevant
+   - Inflasi Indonesia naik = RELEVANT
+
+2. Must be from the trusted Indonesian sources list above
+
+3. Must be published in the last 3-4 hours
+
+4. If a global/international news item has NO direct Indonesia market impact = SKIP IT
+
+If nothing passes all 3 rules, say exactly: NO_NEWS
 """
 
 search_response = client.models.generate_content(
@@ -201,7 +218,12 @@ Categories: Food & Beverage, Homecare, Personal Care (grocery).
 Here are today's news items from trusted Indonesian media:
 {search_text}
 
-For each news item, assess impact across 5 levers:
+IMPORTANT: Before analyzing, check each news item:
+- Is it directly relevant to INDONESIAN market, sellers, or consumers? 
+- If NO → skip it entirely, do not include in output
+- If YES → analyze it
+
+For relevant items, assess impact across 5 levers:
 - Assortment: affect what products to carry or remove?
 - Price: affect pricing or consumer price sensitivity?
 - Seller Investment: affect how much sellers invest on platform?
@@ -209,7 +231,8 @@ For each news item, assess impact across 5 levers:
 - Seller Sentiment: make sellers optimistic or pessimistic?
 
 Label each GOOD or BAD with a short specific reason.
-Include the exact article URL in the "link" field.
+For the "link" field: use the exact URL from the search results above.
+If no real URL was found, write "NOT_FOUND" — never invent a URL.
 
 Return ONLY a valid JSON array. No markdown. No text before or after:
 [
@@ -288,10 +311,22 @@ send_telegram(
 
 for i, item in enumerate(new_items, 1):
     source = item.get("source", "")
+    raw_link = item.get("link", "NOT_FOUND")
+
+    # Only show link if it looks like a real URL
+    is_real_url = (
+        raw_link and
+        raw_link != "NOT_FOUND" and
+        raw_link.startswith("http") and
+        "example.com" not in raw_link and
+        len(raw_link) > 20
+    )
+    link_line = f"🔗 <b>Link:</b> {raw_link}\n" if is_real_url else "🔗 <b>Link:</b> Artikel tidak tersedia online\n"
+
     send_telegram(
         f"<b>NEWS {i}: {item['news_title']}</b>\n\n"
         f"{'📰 <b>Source:</b> ' + source + chr(10) if source else ''}"
-        f"🔗 <b>Link:</b> {item.get('link', 'N/A')}\n\n"
+        f"{link_line}\n"
         f"<b>Impact to Shopee:</b>\n"
         f"{emoji(item['assortment_verdict'])} <b>Assortment:</b> {item['assortment_verdict']} — {item['assortment_reason']}\n"
         f"{emoji(item['price_verdict'])} <b>Price:</b> {item['price_verdict']} — {item['price_reason']}\n"
