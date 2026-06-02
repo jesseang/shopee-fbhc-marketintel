@@ -16,31 +16,26 @@ HOUR_WIB   = NOW.hour + 7
 if HOUR_WIB >= 24: HOUR_WIB -= 24
 IS_MORNING = HOUR_WIB in [7, 8]
 
-# ── SPECIFIC SEARCH QUERIES ──────────────────────────────────────────
-# Each query is laser-focused — no room for job listings or irrelevant news
+# ── TARGETED SEARCH QUERIES ──────────────────────────────────────────
 SEARCH_QUERIES = [
-    # E-commerce regulation
     "Kemendag Permendag marketplace Indonesia 2026",
     "regulasi e-commerce Shopee Tokopedia TikTok Shop Indonesia 2026",
     "keluhan penjual marketplace Kemendag 2026",
-    # FMCG prices & policy
     "harga minyak goreng beras gula Indonesia 2026",
     "BPOM recall penarikan produk makanan minuman 2026",
     "inflasi harga pangan Indonesia 2026",
-    # Platform news
     "Shopee Indonesia kebijakan seller 2026",
     "TikTok Shop Indonesia live commerce 2026",
-    # Trends
     "produk FMCG viral Indonesia 2026",
     "Korean food K-beauty trend Indonesia 2026",
 ]
 
-# ── TRUSTED SOURCES ──────────────────────────────────────────────────
 TRUSTED_DOMAINS = [
     "kompas.com", "tempo.co", "detik.com", "cnbcindonesia.com",
     "bisnis.com", "kontan.co.id", "katadata.co.id", "antaranews.com",
     "liputan6.com", "mediaindonesia.com", "republika.co.id",
     "kemendag.go.id", "bpom.go.id", "thejakartapost.com",
+    "swa.co.id", "marketing.co.id", "foodreview.co.id",
 ]
 
 # ── SEEN NEWS TRACKER ────────────────────────────────────────────────
@@ -84,16 +79,51 @@ def extract_text(response):
                         text += part.text
     return text.strip()
 
-def is_valid_url(url):
+def extract_real_urls(response):
+    """Extract real URLs from Gemini grounding metadata — these are verified source URLs."""
+    urls = []
+    try:
+        if not response or not response.candidates:
+            return urls
+        for candidate in response.candidates:
+            if not hasattr(candidate, "grounding_metadata"):
+                continue
+            gm = candidate.grounding_metadata
+            if not gm:
+                continue
+            # grounding_chunks contains the actual URLs Gemini retrieved
+            if hasattr(gm, "grounding_chunks") and gm.grounding_chunks:
+                for chunk in gm.grounding_chunks:
+                    if hasattr(chunk, "web") and chunk.web:
+                        uri = chunk.web.uri
+                        title = getattr(chunk.web, "title", "")
+                        if uri and uri.startswith("http"):
+                            urls.append({"url": uri, "title": title})
+    except Exception as e:
+        print(f"URL extraction error: {e}")
+    return urls
+
+def is_trusted_url(url):
     if not url: return False
-    if url == "NOT_FOUND": return False
     if not url.startswith("http"): return False
     if "example.com" in url: return False
-    if len(url) < 25: return False
-    return True
-
-def is_trusted_source(url):
     return any(domain in url for domain in TRUSTED_DOMAINS)
+
+def find_best_url(title, grounding_urls):
+    """Match article title to the best grounding URL."""
+    title_words = set(title.lower().split())
+    best_url = None
+    best_score = 0
+    for item in grounding_urls:
+        url = item["url"]
+        if not is_trusted_url(url): continue
+        # Score by how many title words appear in the URL or its title
+        combined = (url + " " + item.get("title", "")).lower()
+        score = sum(1 for w in title_words if len(w) > 4 and w in combined)
+        if score > best_score:
+            best_score = score
+            best_url = url
+    return best_url
 
 # ── LOAD SEEN DATA ───────────────────────────────────────────────────
 seen = load_seen()
@@ -115,29 +145,25 @@ if IS_MORNING:
     seen["found"] = 0
     save_seen(seen)
 
-# ── STEP 1: RUN TARGETED SEARCHES ────────────────────────────────────
+# ── STEP 1: TARGETED SEARCHES + COLLECT REAL URLs ────────────────────
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-all_search_results = ""
+all_search_text = ""
+all_grounding_urls = []  # real URLs from Gemini's actual search
 
 for query in SEARCH_QUERIES:
     search_prompt = f"""
-Search for: "{query}"
+Search for Indonesian news about: "{query}"
+Find articles from last 24 hours from: kompas.com, tempo.co, detik.com,
+cnbcindonesia.com, bisnis.com, kontan.co.id, katadata.co.id, antaranews.com,
+liputan6.com, kemendag.go.id, bpom.go.id
 
-Find news articles from the last 7 days.
-Only return results from these trusted Indonesian news sites:
-kompas.com, tempo.co, detik.com, cnbcindonesia.com, bisnis.com,
-kontan.co.id, katadata.co.id, antaranews.com, liputan6.com,
-mediaindonesia.com, kemendag.go.id, bpom.go.id, thejakartapost.com
-
-For each result found, output EXACTLY this format:
+For each article found:
 TITLE: [exact headline]
-URL: [exact URL from search results]
-SOURCE: [domain name]
-SUMMARY: [2 sentence summary]
+SOURCE: [domain]
+SUMMARY: [2 sentences]
 ---
-
-If no results found for this query, output: NONE
+Output NONE if nothing found.
 """
     try:
         resp = client.models.generate_content(
@@ -149,43 +175,47 @@ If no results found for this query, output: NONE
             ),
         )
         result = extract_text(resp)
-        if result and result.strip() != "NONE":
-            all_search_results += f"\n\n=== Query: {query} ===\n{result}"
+        if result and "NONE" not in result:
+            all_search_text += f"\n\n=== {query} ===\n{result}"
+
+        # Extract real URLs from grounding metadata
+        urls = extract_real_urls(resp)
+        all_grounding_urls.extend(urls)
+
     except Exception as e:
         print(f"Search error for '{query}': {e}")
         continue
 
-if not all_search_results.strip():
+if not all_search_text.strip():
     save_seen(seen)
-    print(f"No results from any search query at {HOUR_UTC}")
+    print(f"No results at {HOUR_UTC}")
     exit(0)
 
-# ── STEP 2: ANALYZE — extract structured items ────────────────────────
+# ── STEP 2: ANALYZE ───────────────────────────────────────────────────
 analysis_prompt = f"""
 You are a market intelligence analyst for a Shopee Indonesia Category Manager.
-Categories: Food & Beverage, Homecare, Personal Care (grocery).
+Categories: Food & Beverage, Homecare, Personal Care.
 
-Here are raw search results from Indonesian news sites:
-{all_search_results}
+News search results from Indonesian trusted media:
+{all_search_text}
 
-From these results, extract ONLY news items that are:
-1. Directly relevant to Indonesian grocery e-commerce, FMCG, or marketplace regulation
-2. NOT job listings, NOT company profiles, NOT sports, NOT entertainment
-3. Have a real URL from a trusted source
+Extract ONLY news that is:
+- Directly relevant to Indonesian FMCG, grocery, or e-commerce marketplace
+- NOT job listings, NOT company profiles, NOT sports, NOT entertainment
+- NOT global news with no Indonesia market impact
 
-For each relevant item, assess impact on 5 levers:
-- Assortment: affect what products to carry or remove?
+For each relevant item assess 5 levers:
+- Assortment: affect what products to carry?
 - Price: affect pricing or consumer price sensitivity?
-- Seller Investment: affect how much sellers invest on platform?
+- Seller Investment: affect seller spending on platform?
 - Content Commerce: affect live selling or content trends?
 - Seller Sentiment: make sellers optimistic or pessimistic?
 
-Return ONLY a valid JSON array. No markdown. No text outside JSON:
+Return ONLY valid JSON array, no markdown, no text outside JSON:
 [
   {{
     "news_title": "exact headline",
-    "source": "e.g. Kompas.com",
-    "link": "exact URL from search results — NOT_FOUND if unavailable",
+    "source": "domain e.g. Kompas.com",
     "assortment_verdict": "GOOD or BAD",
     "assortment_reason": "max 12 words",
     "price_verdict": "GOOD or BAD",
@@ -201,54 +231,44 @@ Return ONLY a valid JSON array. No markdown. No text outside JSON:
   }}
 ]
 
-If nothing qualifies, return: []
+If nothing qualifies: []
 """
 
-analysis_response = client.models.generate_content(
+analysis_resp = client.models.generate_content(
     model="gemini-2.5-flash-lite",
     contents=analysis_prompt,
     config=types.GenerateContentConfig(temperature=0.1),
 )
 
-raw = extract_text(analysis_response)
-
+raw = extract_text(analysis_resp)
 if not raw:
-    save_seen(seen)
-    print(f"No analysis output at {HOUR_UTC}")
-    exit(0)
+    save_seen(seen); exit(0)
 
-# ── STEP 3: PARSE JSON ────────────────────────────────────────────────
+# Parse JSON
 if "```" in raw:
     for block in raw.split("```"):
-        if block.startswith("json"):
-            raw = block[4:].strip(); break
-        elif "[" in block:
-            raw = block.strip(); break
+        if block.startswith("json"): raw = block[4:].strip(); break
+        elif "[" in block: raw = block.strip(); break
 
-start = raw.find("[")
-end   = raw.rfind("]") + 1
+start = raw.find("["); end = raw.rfind("]") + 1
 if start == -1 or end == 0:
-    save_seen(seen)
-    print(f"Could not parse JSON at {HOUR_UTC}")
-    exit(0)
+    save_seen(seen); exit(0)
 
 all_items = json.loads(raw[start:end])
 
-# ── STEP 4: FILTER — seen + valid URL + trusted source ───────────────
+# ── STEP 3: MATCH REAL URLs FROM GROUNDING ───────────────────────────
+# This is the key fix — use actual URLs Gemini retrieved, not hallucinated ones
+for item in all_items:
+    real_url = find_best_url(item["news_title"], all_grounding_urls)
+    item["link"] = real_url or "NOT_FOUND"
+
+# ── STEP 4: FILTER ───────────────────────────────────────────────────
 new_items = []
 for item in all_items:
-    # Skip if already seen
     h = make_hash(item["news_title"])
-    if h in seen["hashes"]:
-        continue
-    # Skip if no valid URL
-    link = item.get("link", "NOT_FOUND")
-    if not is_valid_url(link):
-        print(f"Skipped (no valid URL): {item['news_title']}")
-        continue
-    # Skip if not from trusted source
-    if not is_trusted_source(link):
-        print(f"Skipped (untrusted source): {link}")
+    if h in seen["hashes"]: continue
+    if not is_trusted_url(item.get("link", "")):
+        print(f"Skipped no valid URL: {item['news_title']}")
         continue
     new_items.append(item)
     seen["hashes"].append(h)
@@ -264,17 +284,15 @@ if not new_items:
 send_telegram(
     f"📡 <b>SHOPEE GROCERY — MARKET INTEL</b>\n"
     f"📅 {TODAY} · {HOUR_UTC}\n"
-    f"🔍 {len(new_items)} verified signal(s) found\n"
+    f"🔍 {len(new_items)} verified signal(s)\n"
     f"{'─' * 28}"
 )
 
 for i, item in enumerate(new_items, 1):
-    source = item.get("source", "")
-    link   = item.get("link", "")
     send_telegram(
         f"<b>NEWS {i}: {item['news_title']}</b>\n\n"
-        f"{'📰 <b>Source:</b> ' + source + chr(10) if source else ''}"
-        f"🔗 <b>Link:</b> {link}\n\n"
+        f"📰 <b>Source:</b> {item.get('source','')}\n"
+        f"🔗 <b>Link:</b> {item['link']}\n\n"
         f"<b>Impact to Shopee:</b>\n"
         f"{emoji(item['assortment_verdict'])} <b>Assortment:</b> {item['assortment_verdict']} — {item['assortment_reason']}\n"
         f"{emoji(item['price_verdict'])} <b>Price:</b> {item['price_verdict']} — {item['price_reason']}\n"
@@ -290,5 +308,4 @@ send_telegram(
     f"✅ <b>Scan complete.</b> {len(new_items)} verified item(s).\n"
     f"Next scan in ~3 hours ✅"
 )
-
-print(f"✅ Sent {len(new_items)} item(s) to Telegram at {HOUR_UTC}")
+print(f"✅ Sent {len(new_items)} item(s) at {HOUR_UTC}")
